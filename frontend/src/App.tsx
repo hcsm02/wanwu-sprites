@@ -1,37 +1,224 @@
-import { Check, Heart, Home, Loader2, RefreshCw, Sparkles, Wand2 } from 'lucide-react'
+import {
+  Check,
+  Clock3,
+  Heart,
+  Leaf,
+  Loader2,
+  MapPinHouse,
+  MoonStar,
+  RefreshCw,
+  Sparkles,
+  Wand2,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 
 import { createRecord, listRecords, recommendActivity } from './api'
 import type { ActivityCard, ActivityContext, ActivityRecord } from './types'
 
-const DEFAULT_CONTEXT: ActivityContext = {
-  duration: '5-15分钟',
-  location: '家里',
-  materials: '不用材料',
-  child_state: '随便推荐',
-  child_age: null,
+type Locale = 'zh' | 'en'
+type Stage = 'home' | 'activity' | 'doing' | 'reflect' | 'memory'
+type DurationKey = '5' | '10' | '15'
+type LocationKey = 'home' | 'go' | 'outdoors'
+type MaterialsKey = 'none' | 'paper' | 'nearby'
+type ChildStateKey = 'calm' | 'energy' | 'quiet' | 'moody'
+type MoodKey = 'amazing' | 'happy' | 'calm' | 'silly' | 'tiring'
+
+type UiContext = {
+  duration: DurationKey
+  location: LocationKey
+  materials: MaterialsKey
+  childState: ChildStateKey
 }
 
-const moodOptions = ['开心', '平静', '好笑', '有点累', '不配合']
-const durationOptions = ['5分钟', '10分钟', '15分钟']
-const locationOptions = ['家里', '路上', '户外']
-const materialOptions = ['不用材料', '纸笔即可', '随便推荐']
-const stateOptions = ['随便推荐', '精力旺盛', '想安静', '情绪不好']
+const DEFAULT_CONTEXT: UiContext = {
+  duration: '5',
+  location: 'home',
+  materials: 'none',
+  childState: 'calm',
+}
 
-type Stage = 'home' | 'activity' | 'doing' | 'reflect' | 'memory'
+const durationLabels: Record<Locale, Record<DurationKey, string>> = {
+  zh: { '5': '5分钟', '10': '10分钟', '15': '15分钟' },
+  en: { '5': '5 min', '10': '10 min', '15': '15 min' },
+}
+
+const locationLabels: Record<Locale, Record<LocationKey, string>> = {
+  zh: { home: '家里', go: '路上', outdoors: '户外' },
+  en: { home: 'At home', go: 'On the go', outdoors: 'Outdoors' },
+}
+
+const materialLabels: Record<Locale, Record<MaterialsKey, string>> = {
+  zh: { none: '不用材料', paper: '纸笔即可', nearby: '手边材料' },
+  en: { none: 'No materials', paper: 'Paper + pen', nearby: 'Anything nearby' },
+}
+
+const childStateLabels: Record<Locale, Record<ChildStateKey, string>> = {
+  zh: { calm: '随便推荐', energy: '精力旺盛', quiet: '想安静', moody: '情绪不好' },
+  en: { calm: 'Calm mode', energy: 'Full energy', quiet: 'Need quiet', moody: 'Moody' },
+}
+
+const moodLabels: Record<Locale, Record<MoodKey, string>> = {
+  zh: { amazing: '超棒', happy: '开心', calm: '平静', silly: '好笑', tiring: '有点累' },
+  en: { amazing: 'Amazing', happy: 'Happy', calm: 'Calm', silly: 'Silly', tiring: 'Tiring' },
+}
+
+const moodKeys: MoodKey[] = ['amazing', 'happy', 'calm', 'silly', 'tiring']
+const durationKeys: DurationKey[] = ['5', '10', '15']
+const locationKeys: LocationKey[] = ['home', 'go', 'outdoors']
+const materialKeys: MaterialsKey[] = ['none', 'paper', 'nearby']
+const childStateKeys: ChildStateKey[] = ['calm', 'energy', 'quiet', 'moody']
+
+const sampleActivities: Record<Locale, ActivityCard> = {
+  zh: {
+    title: '影子模仿',
+    tags: ['5分钟', '家里', '不用材料'],
+    intro: '用灯光在墙上玩影子，一人做动作，一人马上跟着学。',
+    steps: ['打开一盏灯，找一面空墙。', '一个人先做影子动作，另一个人跟着模仿。', '交换角色，看看谁的影子最搞笑。'],
+    question: '你觉得今天最像小动物的影子是哪一个？',
+    record_prompt: '刚才哪一瞬间最让孩子笑出来？',
+    sprite_tip: '我先帮你挑一张，简单一点，马上就能开始。',
+  },
+  en: {
+    title: 'Shadow Mimic',
+    tags: ['5 min', 'At home', 'No materials'],
+    intro: 'Make funny wall shadows together and copy each other’s shapes.',
+    steps: [
+      'Turn on a lamp and face a blank wall.',
+      'One person makes a shadow shape and the other copies it.',
+      'Swap roles and laugh at the silliest shadow.',
+    ],
+    question: 'What is the funniest shadow your family can make today?',
+    record_prompt: 'What tiny moment made your child laugh the most?',
+    sprite_tip: 'Here’s a fun one for you. Keep it simple and playful.',
+  },
+}
+
+const PLAY_SPRITE_SRC = '/sprites/play-sprite.png'
+const REFLECT_SPRITE_SRC = '/sprites/reflect-sprite.png'
+
+const localeCopy = {
+  zh: {
+    heroSubtitle: '小活动，长记忆。',
+    heroSupport: '抽一张亲子活动卡，马上开始玩，再把一句话整理成值得回看的成长瞬间。',
+    switchZh: '中文',
+    switchEn: 'English',
+    meetSprites: '认识精灵',
+    playSprite: '玩精灵',
+    playSpriteRole: '活动',
+    reflectSprite: '忆精灵',
+    reflectSpriteRole: '记忆',
+    mission: '两个精灵，一个任务：多玩一点，多记一点。',
+    recentMemories: '最近记忆',
+    emptyMemories: '完成一次活动后，你们的亲子记忆会出现在这里。',
+    panelHome: '首页',
+    panelHomeCaption: '先抽一张卡。',
+    panelActivity: '活动卡',
+    panelActivityCaption: '三步以内，立刻开始。',
+    panelDoing: '进行 / 完成',
+    panelDoingCaption: '玩完就结束。',
+    panelReflect: '回忆',
+    panelReflectCaption: '把这一刻留下来。',
+    homePrompt: '今天玩什么？',
+    drawCard: '抽一张卡',
+    playBubble: '给你挑了个轻松好玩的。',
+    simpleSteps: '3步以内',
+    start: '开始',
+    swap: '换一张',
+    niceJob: '太棒了！',
+    youDidIt: '你们完成啦。',
+    wellPlayed: '玩得真好',
+    done: '完成',
+    reflectBubble: '来，把这一刻记下来。',
+    howDidItFeel: '感觉怎么样？',
+    oneLineNote: '一句话记录',
+    helpWrite: '帮我起个头',
+    save: '保存',
+    saved: '已保存',
+    aiMemoryPreview: 'AI记忆预览',
+    tinyActivities: '小活动',
+    tinyActivitiesText: '精选、快速、好玩。',
+    familyTime: '陪伴时光',
+    familyTimeText: '随时随地一起玩。',
+    lastingMemories: '长记忆',
+    lastingMemoriesText: '把当下保存下来。',
+    kidFriendly: '亲子友好',
+    kidFriendlyText: '简单、安全、无干扰。',
+    drawError: '抽卡失败，请稍后重试。',
+    saveError: '保存失败，请稍后重试。',
+    fallbackMemory: (title: string, prompt: string) => `你和孩子刚一起完成了《${title}》。${prompt}`,
+    spriteMission: 'Wanwu Sprites',
+  },
+  en: {
+    heroSubtitle: 'Tiny activities, lasting memories.',
+    heroSupport: 'Draw one tiny activity card, play right away, and turn a one-line note into a keepsake.',
+    switchZh: '中文',
+    switchEn: 'English',
+    meetSprites: 'Meet the Sprites',
+    playSprite: 'Play Sprite',
+    playSpriteRole: 'Activities',
+    reflectSprite: 'Reflect Sprite',
+    reflectSpriteRole: 'Memories',
+    mission: 'Two sprites. One mission: play more, remember more.',
+    recentMemories: 'Recent memories',
+    emptyMemories: 'Finish one activity and your keepsakes will appear here.',
+    panelHome: 'Home',
+    panelHomeCaption: 'Start with one card.',
+    panelActivity: 'Activity',
+    panelActivityCaption: 'Simple steps. Easy to start.',
+    panelDoing: 'During / Finish',
+    panelDoingCaption: 'Celebrate and complete.',
+    panelReflect: 'Reflection',
+    panelReflectCaption: 'Remember the moment.',
+    homePrompt: 'What should we play today?',
+    drawCard: 'Draw a Card',
+    playBubble: 'Here’s a fun one for you!',
+    simpleSteps: '3 simple steps',
+    start: 'Start',
+    swap: 'Swap',
+    niceJob: 'Nice job!',
+    youDidIt: 'You did it.',
+    wellPlayed: 'Well played!',
+    done: 'Done',
+    reflectBubble: 'Let’s capture this memory.',
+    howDidItFeel: 'How did it feel?',
+    oneLineNote: 'One-line note',
+    helpWrite: 'Help me write it',
+    save: 'Save',
+    saved: 'Saved',
+    aiMemoryPreview: 'AI memory preview',
+    tinyActivities: 'Tiny activities',
+    tinyActivitiesText: 'Curated, quick, and fun.',
+    familyTime: 'Family time',
+    familyTimeText: 'Play together, anywhere.',
+    lastingMemories: 'Lasting memories',
+    lastingMemoriesText: 'Capture and cherish.',
+    kidFriendly: 'Kid friendly',
+    kidFriendlyText: 'Simple, safe, and ad-free.',
+    drawError: 'Failed to draw a card. Please try again.',
+    saveError: 'Failed to save this memory.',
+    fallbackMemory: (title: string, prompt: string) => `You and your child tried "${title}" together. ${prompt}`,
+    spriteMission: 'Wanwu Sprites',
+  },
+} as const
 
 export default function App() {
+  const [locale, setLocale] = useState<Locale>('zh')
   const [stage, setStage] = useState<Stage>('home')
-  const [context, setContext] = useState<ActivityContext>(DEFAULT_CONTEXT)
+  const [context, setContext] = useState<UiContext>(DEFAULT_CONTEXT)
   const [activity, setActivity] = useState<ActivityCard | null>(null)
   const [records, setRecords] = useState<ActivityRecord[]>([])
-  const [mood, setMood] = useState('开心')
+  const [mood, setMood] = useState<MoodKey>('happy')
   const [note, setNote] = useState('')
   const [lastRecord, setLastRecord] = useState<ActivityRecord | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  const copy = localeCopy[locale]
   const latestRecords = useMemo(() => records.slice(0, 3), [records])
+  const activeActivity = activity ?? sampleActivities[locale]
+  const activeStageIndex = stage === 'memory' ? 4 : ['home', 'activity', 'doing', 'reflect'].indexOf(stage) + 1
+  const memoryPreview = lastRecord?.ai_memory || copy.fallbackMemory(activeActivity.title, note || activeActivity.record_prompt)
 
   useEffect(() => {
     refreshRecords()
@@ -42,7 +229,17 @@ export default function App() {
       const result = await listRecords()
       setRecords(result)
     } catch {
-      // MVP：历史记录加载失败不阻塞主流程。
+      // Ignore history fetch failures in the visual demo.
+    }
+  }
+
+  function buildApiContext(currentContext: UiContext, currentLocale: Locale): ActivityContext {
+    return {
+      duration: durationLabels[currentLocale][currentContext.duration],
+      location: locationLabels[currentLocale][currentContext.location],
+      materials: materialLabels[currentLocale][currentContext.materials],
+      child_state: childStateLabels[currentLocale][currentContext.childState],
+      child_age: null,
     }
   }
 
@@ -50,19 +247,18 @@ export default function App() {
     setLoading(true)
     setError('')
     try {
-      const result = await recommendActivity(nextContext)
+      const result = await recommendActivity(buildApiContext(nextContext, locale))
       setActivity(result)
       setStage('activity')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '抽卡失败，请稍后重试')
+      setError(err instanceof Error ? err.message : copy.drawError)
     } finally {
       setLoading(false)
     }
   }
 
-  function updateContext<K extends keyof ActivityContext>(key: K, value: ActivityContext[K]) {
-    const nextContext = { ...context, [key]: value }
-    setContext(nextContext)
+  function updateContext<K extends keyof UiContext>(key: K, value: UiContext[K]) {
+    setContext((current) => ({ ...current, [key]: value }))
   }
 
   async function saveReflection() {
@@ -72,7 +268,7 @@ export default function App() {
     try {
       const record = await createRecord({
         activity,
-        mood,
+        mood: moodLabels[locale][mood],
         one_line_note: note || activity.record_prompt,
       })
       setLastRecord(record)
@@ -80,367 +276,639 @@ export default function App() {
       setNote('')
       await refreshRecords()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败，请稍后重试')
+      setError(err instanceof Error ? err.message : copy.saveError)
     } finally {
       setLoading(false)
     }
   }
 
+  function fillPrompt() {
+    setStage('reflect')
+    setNote(activeActivity.record_prompt)
+  }
+
   return (
-    <main className="app-shell">
-      <section className="phone-frame">
-        <Header stage={stage} onHome={() => setStage('home')} />
-        {error && <div className="error-banner">{error}</div>}
+    <main className="showcase-shell">
+      <div className="backdrop-stars" aria-hidden="true">
+        <span className="star a">✦</span>
+        <span className="star b">✦</span>
+        <span className="star c">✦</span>
+        <span className="star d">✦</span>
+      </div>
 
-        {stage === 'home' && (
-          <HomeScreen
-            context={context}
-            latestRecords={latestRecords}
-            loading={loading}
-            onDraw={() => drawCard()}
-            onContextChange={updateContext}
-          />
-        )}
+      <section className="brand-hero">
+        <div className="brand-copy">
+          <div className="locale-switch" role="tablist" aria-label="Language switch">
+            <button className={locale === 'zh' ? 'active' : ''} onClick={() => setLocale('zh')}>
+              {copy.switchZh}
+            </button>
+            <button className={locale === 'en' ? 'active' : ''} onClick={() => setLocale('en')}>
+              {copy.switchEn}
+            </button>
+          </div>
 
-        {stage === 'activity' && activity && (
-          <ActivityScreen
-            activity={activity}
-            loading={loading}
-            onStart={() => setStage('doing')}
-            onSwap={() => drawCard()}
-          />
-        )}
+          <div className="wordmark">
+            <span className="wordmark-dark">Wanwu</span>
+            <span className="wordmark-rainbow">Sprites</span>
+          </div>
+          <p className="hero-subtitle">{copy.heroSubtitle}</p>
+          <p className="hero-support">{copy.heroSupport}</p>
+        </div>
 
-        {stage === 'doing' && activity && (
-          <DoingScreen activity={activity} onDone={() => setStage('reflect')} />
-        )}
+        <div className="hero-sprites" aria-hidden="true">
+          <div className="sprite-orbit play">
+            <PlaySprite size="hero" />
+          </div>
+          <div className="sprite-orbit reflect">
+            <ReflectSprite size="hero" />
+          </div>
+        </div>
+      </section>
 
-        {stage === 'reflect' && activity && (
-          <ReflectScreen
-            activity={activity}
-            mood={mood}
-            note={note}
-            loading={loading}
-            onMoodChange={setMood}
-            onNoteChange={setNote}
-            onSave={saveReflection}
-          />
-        )}
+      {error && <div className="error-banner">{error}</div>}
 
-        {stage === 'memory' && lastRecord && (
-          <MemoryScreen
-            record={lastRecord}
-            records={latestRecords}
-            onDrawAgain={() => drawCard()}
-            onHome={() => setStage('home')}
-          />
-        )}
+      <section className="poster-board">
+        <aside className="sprite-rail">
+          <div className="rail-card">
+            <h2>{copy.meetSprites}</h2>
+            <div className="rail-divider">★</div>
+
+            <div className="sprite-profile">
+              <div className="sprite-circle warm">
+                <PlaySprite size="medium" />
+              </div>
+              <div>
+                <h3>{copy.playSprite}</h3>
+                <p>{copy.playSpriteRole}</p>
+              </div>
+            </div>
+
+            <div className="sprite-profile">
+              <div className="sprite-circle cool">
+                <ReflectSprite size="medium" />
+              </div>
+              <div>
+                <h3>{copy.reflectSprite}</h3>
+                <p>{copy.reflectSpriteRole}</p>
+              </div>
+            </div>
+
+            <div className="mission-chip">
+              <Heart size={16} />
+              <span>{copy.mission}</span>
+            </div>
+          </div>
+
+          <div className="rail-card memories-card">
+            <div className="rail-card-head">
+              <h2>{copy.recentMemories}</h2>
+              <ReflectSprite size="tiny" />
+            </div>
+            {latestRecords.length === 0 ? (
+              <p className="rail-empty">{copy.emptyMemories}</p>
+            ) : (
+              <div className="memory-stack">
+                {latestRecords.map((record) => (
+                  <article key={record.id} className="memory-stack-item">
+                    <strong>{record.activity_title}</strong>
+                    <p>{record.ai_memory}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <div className="interactive-stage">
+          <div className="main-device-column">
+            <div className="experience-copy">
+              <h2>{copy.panelHome} → {copy.panelReflect}</h2>
+              <p>{locale === 'zh' ? '现在是可操作版本：中间只有一个当前页面，按流程逐步切换。' : 'This is now a usable flow: one active screen in the middle, switching step by step.'}</p>
+            </div>
+
+            <PhoneFrame
+              title={
+                activeStageIndex === 1
+                  ? copy.spriteMission
+                  : activeStageIndex === 2
+                    ? copy.playSprite
+                    : activeStageIndex === 3
+                      ? activeActivity.title
+                      : copy.reflectSprite
+              }
+              tone={activeStageIndex === 4 ? 'cool' : 'warm'}
+            >
+              {activeStageIndex === 1 && (
+                <HomePhone
+                  locale={locale}
+                  prompt={copy.homePrompt}
+                  drawLabel={copy.drawCard}
+                  context={context}
+                  loading={loading}
+                  onDraw={() => drawCard()}
+                  onContextChange={updateContext}
+                />
+              )}
+
+              {activeStageIndex === 2 && (
+                <ActivityPhone
+                  locale={locale}
+                  bubble={copy.playBubble}
+                  stepsLabel={copy.simpleSteps}
+                  startLabel={copy.start}
+                  swapLabel={copy.swap}
+                  activity={activeActivity}
+                  loading={loading}
+                  onSwap={() => drawCard()}
+                  onStart={() => setStage('doing')}
+                  ready={activity !== null}
+                />
+              )}
+
+              {activeStageIndex === 3 && (
+                <DoingPhone
+                  niceJob={copy.niceJob}
+                  youDidIt={copy.youDidIt}
+                  wellPlayed={copy.wellPlayed}
+                  doneLabel={copy.done}
+                  activity={activeActivity}
+                  onDone={() => setStage('reflect')}
+                />
+              )}
+
+              {activeStageIndex === 4 && (
+                <ReflectPhone
+                  locale={locale}
+                  bubble={copy.reflectBubble}
+                  feelingLabel={copy.howDidItFeel}
+                  noteLabel={copy.oneLineNote}
+                  helpLabel={copy.helpWrite}
+                  saveLabel={copy.save}
+                  savedLabel={copy.saved}
+                  previewLabel={copy.aiMemoryPreview}
+                  activity={activeActivity}
+                  mood={mood}
+                  note={note}
+                  memoryPreview={memoryPreview}
+                  loading={loading}
+                  saved={stage === 'memory'}
+                  onMoodChange={setMood}
+                  onNoteChange={setNote}
+                  onFillPrompt={fillPrompt}
+                  onSave={saveReflection}
+                />
+              )}
+            </PhoneFrame>
+          </div>
+
+          <aside className="stage-dock">
+            <StagePreview
+              number={1}
+              label={copy.panelHome}
+              caption={copy.panelHomeCaption}
+              active={activeStageIndex === 1}
+              onClick={() => setStage('home')}
+            />
+            <StagePreview
+              number={2}
+              label={copy.panelActivity}
+              caption={copy.panelActivityCaption}
+              active={activeStageIndex === 2}
+              onClick={() => setStage('activity')}
+            />
+            <StagePreview
+              number={3}
+              label={copy.panelDoing}
+              caption={copy.panelDoingCaption}
+              active={activeStageIndex === 3}
+              onClick={() => setStage('doing')}
+            />
+            <StagePreview
+              number={4}
+              label={copy.panelReflect}
+              caption={copy.panelReflectCaption}
+              active={activeStageIndex === 4}
+              onClick={() => setStage(stage === 'memory' ? 'memory' : 'reflect')}
+            />
+          </aside>
+        </div>
+      </section>
+
+      <section className="value-strip">
+        <FeatureItem icon={<Wand2 size={18} />} title={copy.tinyActivities} text={copy.tinyActivitiesText} />
+        <FeatureItem icon={<Heart size={18} />} title={copy.familyTime} text={copy.familyTimeText} />
+        <FeatureItem icon={<Sparkles size={18} />} title={copy.lastingMemories} text={copy.lastingMemoriesText} />
+        <FeatureItem icon={<Check size={18} />} title={copy.kidFriendly} text={copy.kidFriendlyText} />
       </section>
     </main>
   )
 }
 
-function Header({ stage, onHome }: { stage: Stage; onHome: () => void }) {
-  const title = stage === 'reflect' || stage === 'memory' ? '悟精灵' : '玩悟精灵'
+function StagePreview({
+  number,
+  label,
+  caption,
+  active,
+  onClick,
+}: {
+  number: number
+  label: string
+  caption: string
+  active: boolean
+  onClick: () => void
+}) {
   return (
-    <header className="app-header">
-      <button className="icon-button" onClick={onHome} aria-label="返回首页">
-        <Home size={19} />
-      </button>
+    <button className={`stage-preview ${active ? 'active' : ''}`} onClick={onClick}>
+      <div className="phone-step">{number}</div>
       <div>
-        <div className="brand-title">{title}</div>
-        <div className="brand-subtitle">抽一张就能玩，一句话也能保存</div>
+        <strong>{label}</strong>
+        <p>{caption}</p>
       </div>
-      <div className="sprite-mini">{stage === 'reflect' || stage === 'memory' ? '💙' : '⭐'}</div>
-    </header>
+    </button>
   )
 }
 
-function HomeScreen({
-  context,
-  latestRecords,
-  loading,
-  onDraw,
-  onContextChange,
+function PhoneFrame({
+  title,
+  tone,
+  children,
 }: {
-  context: ActivityContext
-  latestRecords: ActivityRecord[]
-  loading: boolean
-  onDraw: () => void
-  onContextChange: <K extends keyof ActivityContext>(key: K, value: ActivityContext[K]) => void
+  title: string
+  tone: 'warm' | 'cool'
+  children: ReactNode
 }) {
   return (
-    <div className="screen home-screen">
-      <div className="hero-card">
-        <div className="sprite play-sprite" aria-hidden="true">
-          <span className="sprite-face">⭐</span>
+    <div className={`device-shell app-surface ${tone}`}>
+      <div className="device-screen surface-screen">
+        <div className="device-status surface-header">
+          <span className="surface-brand">Wanwu Sprites</span>
+          <span className="surface-title">{title}</span>
+          <span className="surface-menu">⋯</span>
         </div>
-        <p className="eyebrow">玩精灵推荐</p>
-        <h1>今天玩什么？</h1>
-        <p className="hero-copy">少想一点，直接抽一张低门槛亲子活动卡。</p>
-        <button className="primary-button" onClick={onDraw} disabled={loading}>
-          {loading ? <Loader2 className="spin" size={20} /> : <Wand2 size={20} />}
-          抽一张活动卡
-        </button>
+        {children}
       </div>
-
-      <QuickChips
-        title="现在的情况"
-        value={context.duration}
-        options={durationOptions}
-        onChange={(value) => onContextChange('duration', value)}
-      />
-      <QuickChips
-        value={context.location}
-        options={locationOptions}
-        onChange={(value) => onContextChange('location', value)}
-      />
-      <QuickChips
-        value={context.materials}
-        options={materialOptions}
-        onChange={(value) => onContextChange('materials', value)}
-      />
-      <QuickChips
-        value={context.child_state}
-        options={stateOptions}
-        onChange={(value) => onContextChange('child_state', value)}
-      />
-
-      <RecordPreview records={latestRecords} />
     </div>
   )
 }
 
-function QuickChips({
-  title,
-  value,
-  options,
-  onChange,
+function HomePhone({
+  locale,
+  prompt,
+  drawLabel,
+  context,
+  loading,
+  onDraw,
+  onContextChange,
 }: {
-  title?: string
-  value: string
-  options: string[]
-  onChange: (value: string) => void
+  locale: Locale
+  prompt: string
+  drawLabel: string
+  context: UiContext
+  loading: boolean
+  onDraw: () => void
+  onContextChange: <K extends keyof UiContext>(key: K, value: UiContext[K]) => void
 }) {
   return (
-    <section className="chip-section">
-      {title && <div className="section-title">{title}</div>}
-      <div className="chip-row">
-        {options.map((option) => (
-          <button
-            key={option}
-            className={`chip ${option === value ? 'active' : ''}`}
-            onClick={() => onChange(option)}
-          >
-            {option}
-          </button>
-        ))}
+    <div className="phone-screen home-phone">
+      <div className="mini-brand">
+        <div className="mini-wordmark">
+          <span>Wanwu</span>
+          <span>Sprites</span>
+        </div>
+        <button className="mini-menu" type="button" aria-label="Open menu">
+          ≡
+        </button>
       </div>
-    </section>
+
+      <div className="sky-stage">
+        <div className="cloud cloud-left" />
+        <div className="cloud cloud-right" />
+        <PlaySprite size="large" />
+      </div>
+
+      <section className="prompt-card">
+        <h2>{prompt}</h2>
+        <button className="cta-button" onClick={onDraw} disabled={loading}>
+          {loading ? <Loader2 className="spin" size={18} /> : <Wand2 size={18} />}
+          {drawLabel}
+        </button>
+      </section>
+
+      <ChipGroup
+        icon={<Clock3 size={14} />}
+        value={context.duration}
+        options={durationKeys.map((key) => ({ key, label: durationLabels[locale][key] }))}
+        onChange={(value) => onContextChange('duration', value)}
+      />
+      <ChipGroup
+        icon={<MapPinHouse size={14} />}
+        value={context.location}
+        options={locationKeys.map((key) => ({ key, label: locationLabels[locale][key] }))}
+        onChange={(value) => onContextChange('location', value)}
+      />
+      <ChipGroup
+        icon={<Leaf size={14} />}
+        value={context.materials}
+        options={materialKeys.map((key) => ({ key, label: materialLabels[locale][key] }))}
+        onChange={(value) => onContextChange('materials', value)}
+      />
+      <ChipGroup
+        icon={<MoonStar size={14} />}
+        value={context.childState}
+        options={childStateKeys.map((key) => ({ key, label: childStateLabels[locale][key] }))}
+        onChange={(value) => onContextChange('childState', value)}
+      />
+    </div>
   )
 }
 
-function ActivityScreen({
+function ActivityPhone({
+  bubble,
+  stepsLabel,
+  startLabel,
+  swapLabel,
   activity,
   loading,
-  onStart,
   onSwap,
+  onStart,
+  ready,
 }: {
+  locale: Locale
+  bubble: string
+  stepsLabel: string
+  startLabel: string
+  swapLabel: string
   activity: ActivityCard
   loading: boolean
-  onStart: () => void
   onSwap: () => void
+  onStart: () => void
+  ready: boolean
 }) {
   return (
-    <div className="screen activity-screen">
-      <div className="assistant-bubble warm">
-        <div className="sprite small">⭐</div>
-        <span>{activity.sprite_tip}</span>
+    <div className="phone-screen activity-phone">
+      <div className="speech-row">
+        <PlaySprite size="small" />
+        <div className="speech-bubble">{bubble}</div>
       </div>
 
-      <article className="activity-card">
-        <div className="card-image shadow-scene">
-          <span>🧒</span>
-          <span className="shadow">🐰</span>
+      <section className="activity-card">
+        <h2>{activity.title}</h2>
+        <div className="cover-scene">
+          <div className="cover-shadow child">◖</div>
+          <div className="cover-shadow bunny">🐰</div>
         </div>
-        <h1>{activity.title}</h1>
-        <p>{activity.intro}</p>
-        <div className="tag-row">
-          {activity.tags.map((tag) => (
-            <span className="tag" key={tag}>{tag}</span>
+
+        <div className="pill-row">
+          {activity.tags.slice(0, 3).map((tag) => (
+            <span className="meta-pill" key={tag}>
+              {tag}
+            </span>
           ))}
         </div>
 
-        <div className="steps">
-          <div className="section-title">3步以内</div>
+        <div className="steps-copy">
+          <p className="kicker">{stepsLabel}</p>
           {activity.steps.slice(0, 3).map((step, index) => (
-            <div className="step" key={step}>
+            <div className="step-line" key={step}>
               <span>{index + 1}</span>
               <p>{step}</p>
             </div>
           ))}
         </div>
 
-        <div className="question-box">
-          <Sparkles size={18} />
-          <div>
-            <strong>可以问：</strong>
-            <p>{activity.question}</p>
-          </div>
+        <div className="question-callout">
+          <Sparkles size={16} />
+          <p>{activity.question}</p>
         </div>
-      </article>
+      </section>
 
-      <div className="button-row sticky-actions">
-        <button className="primary-button" onClick={onStart}>开始做</button>
-        <button className="secondary-button" onClick={onSwap} disabled={loading}>
-          {loading ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
-          换一张
+      <div className="double-actions">
+        <button className="cta-button small" onClick={onStart} disabled={!ready}>
+          {startLabel}
+        </button>
+        <button className="ghost-button small" onClick={onSwap} disabled={loading}>
+          {loading ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
+          {swapLabel}
         </button>
       </div>
     </div>
   )
 }
 
-function DoingScreen({ activity, onDone }: { activity: ActivityCard; onDone: () => void }) {
+function DoingPhone({
+  niceJob,
+  youDidIt,
+  wellPlayed,
+  doneLabel,
+  activity,
+  onDone,
+}: {
+  niceJob: string
+  youDidIt: string
+  wellPlayed: string
+  doneLabel: string
+  activity: ActivityCard
+  onDone: () => void
+}) {
   return (
-    <div className="screen doing-screen">
-      <div className="done-scene">
-        <div className="family-scene">👩‍👧</div>
-        <h1>只做这几步</h1>
+    <div className="phone-screen doing-phone">
+      <div className="success-stars" aria-hidden="true">
+        ✦ ✦ ✦
+      </div>
+      <div className="finish-copy">
+        <h2>{niceJob}</h2>
+        <p>{youDidIt}</p>
+      </div>
+
+      <div className="family-wall">
+        <div className="kid big" />
+        <div className="kid small" />
+        <div className="wall-shadow fox" />
+      </div>
+
+      <div className="done-badge">
+        <Sparkles size={16} />
+        <span>{wellPlayed}</span>
+      </div>
+
+      <div className="tiny-step-list">
         {activity.steps.slice(0, 3).map((step, index) => (
-          <div className="step large" key={step}>
-            <span>{index + 1}</span>
-            <p>{step}</p>
+          <div className="mini-step" key={step}>
+            <strong>{index + 1}</strong>
+            <span>{step}</span>
           </div>
         ))}
       </div>
-      <button className="primary-button sticky-single" onClick={onDone}>
-        <Check size={20} />
-        做完了
+
+      <button className="cta-button finish" onClick={onDone}>
+        <Check size={18} />
+        {doneLabel}
       </button>
     </div>
   )
 }
 
-function ReflectScreen({
+function ReflectPhone({
+  locale,
+  bubble,
+  feelingLabel,
+  noteLabel,
+  helpLabel,
+  saveLabel,
+  savedLabel,
+  previewLabel,
   activity,
   mood,
   note,
+  memoryPreview,
   loading,
+  saved,
   onMoodChange,
   onNoteChange,
+  onFillPrompt,
   onSave,
 }: {
+  locale: Locale
+  bubble: string
+  feelingLabel: string
+  noteLabel: string
+  helpLabel: string
+  saveLabel: string
+  savedLabel: string
+  previewLabel: string
   activity: ActivityCard
-  mood: string
+  mood: MoodKey
   note: string
+  memoryPreview: string
   loading: boolean
-  onMoodChange: (mood: string) => void
+  saved: boolean
+  onMoodChange: (mood: MoodKey) => void
   onNoteChange: (note: string) => void
+  onFillPrompt: () => void
   onSave: () => void
 }) {
   return (
-    <div className="screen reflect-screen">
-      <div className="assistant-bubble cool">
-        <div className="sprite small blue">💙</div>
-        <span>悟精灵：不用写作文，一句话就可以。</span>
+    <div className="phone-screen reflect-phone">
+      <div className="speech-row cool">
+        <ReflectSprite size="small" />
+        <div className="speech-bubble cool">{bubble}</div>
       </div>
 
-      <section className="reflect-card">
-        <p className="eyebrow">刚才玩了</p>
-        <h1>{activity.title}</h1>
-        <p className="muted">{activity.record_prompt}</p>
-
-        <div className="section-title">感觉如何？</div>
-        <div className="mood-grid">
-          {moodOptions.map((option) => (
+      <div className="reflect-section">
+        <div className="section-label">{feelingLabel}</div>
+        <div className="mood-row">
+          {moodKeys.map((option) => (
             <button
               key={option}
-              className={`mood ${option === mood ? 'active' : ''}`}
+              className={`mood-pill ${option === mood ? 'active' : ''}`}
               onClick={() => onMoodChange(option)}
             >
-              {option}
+              {moodLabels[locale][option]}
             </button>
           ))}
         </div>
 
-        <label className="note-label" htmlFor="note">
-          一句话记录
+        <label className="section-label" htmlFor="note">
+          {noteLabel}
         </label>
         <textarea
           id="note"
           value={note}
           maxLength={80}
-          placeholder="例如：孩子看到影子变成小兔子时笑了很久。"
-          onChange={(event) => onNoteChange(event.target.value)}
+          placeholder={activity.record_prompt}
+          onChange={(event: ChangeEvent<HTMLTextAreaElement>) => onNoteChange(event.target.value)}
         />
-        <div className="counter">{note.length}/80</div>
-      </section>
+        <div className="note-counter">{note.length}/80</div>
 
-      <button className="primary-button blue sticky-single" onClick={onSave} disabled={loading}>
-        {loading ? <Loader2 className="spin" size={20} /> : <Heart size={20} />}
-        帮我整理并保存
-      </button>
+        <div className="memory-preview-box">
+          <div className="preview-head">
+            <Sparkles size={14} />
+            <span>{previewLabel}</span>
+          </div>
+          <p>{memoryPreview}</p>
+        </div>
+      </div>
+
+      <div className="double-actions">
+        <button className="ghost-button blue" onClick={onFillPrompt}>
+          {helpLabel}
+        </button>
+        <button className="save-button" onClick={onSave} disabled={loading}>
+          {loading ? <Loader2 className="spin" size={16} /> : <Heart size={16} />}
+          {saved ? savedLabel : saveLabel}
+        </button>
+      </div>
     </div>
   )
 }
 
-function MemoryScreen({
-  record,
-  records,
-  onDrawAgain,
-  onHome,
+function ChipGroup<T extends string>({
+  icon,
+  value,
+  options,
+  onChange,
 }: {
-  record: ActivityRecord
-  records: ActivityRecord[]
-  onDrawAgain: () => void
-  onHome: () => void
+  icon: ReactNode
+  value: T
+  options: Array<{ key: T; label: string }>
+  onChange: (value: T) => void
 }) {
   return (
-    <div className="screen memory-screen">
-      <div className="memory-success">
-        <div className="sprite reflect-sprite">💙</div>
-        <p className="eyebrow">已保存</p>
-        <h1>这一刻留下来了</h1>
-      </div>
-
-      <article className="memory-card">
-        <div className="tag-row">
-          <span className="tag blue-tag">{record.mood}</span>
-          <span className="tag blue-tag">{record.activity_title}</span>
-        </div>
-        <p>{record.ai_memory}</p>
-      </article>
-
-      <div className="button-row">
-        <button className="primary-button" onClick={onDrawAgain}>明天再抽一张</button>
-        <button className="secondary-button" onClick={onHome}>回首页</button>
-      </div>
-
-      <RecordPreview records={records} />
+    <div className="chip-row">
+      {options.map((option) => (
+        <button
+          key={option.key}
+          className={`context-chip ${option.key === value ? 'active' : ''}`}
+          onClick={() => onChange(option.key)}
+        >
+          {icon}
+          <span>{option.label}</span>
+        </button>
+      ))}
     </div>
   )
 }
 
-function RecordPreview({ records }: { records: ActivityRecord[] }) {
+function FeatureItem({
+  icon,
+  title,
+  text,
+}: {
+  icon: ReactNode
+  title: string
+  text: string
+}) {
   return (
-    <section className="records-panel">
-      <div className="section-title">最近记忆</div>
-      {records.length === 0 ? (
-        <p className="empty-text">还没有记录。完成一次小活动后，会出现在这里。</p>
-      ) : (
-        <div className="record-list">
-          {records.map((record) => (
-            <article className="record-item" key={record.id}>
-              <div>
-                <strong>{record.activity_title}</strong>
-                <p>{record.ai_memory}</p>
-              </div>
-              <span>{new Date(record.created_at).toLocaleDateString()}</span>
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
+    <div className="feature-item">
+      <div className="feature-icon">{icon}</div>
+      <div>
+        <strong>{title}</strong>
+        <p>{text}</p>
+      </div>
+    </div>
+  )
+}
+
+function PlaySprite({
+  size = 'medium',
+}: {
+  size?: 'tiny' | 'small' | 'medium' | 'large' | 'hero'
+}) {
+  return (
+    <img className={`sprite-svg sprite-raster play-sprite ${size}`} src={PLAY_SPRITE_SRC} alt="Play Sprite" />
+  )
+}
+
+function ReflectSprite({
+  size = 'medium',
+}: {
+  size?: 'tiny' | 'small' | 'medium' | 'large' | 'hero'
+}) {
+  return (
+    <img
+      className={`sprite-svg sprite-raster reflect-sprite ${size}`}
+      src={REFLECT_SPRITE_SRC}
+      alt="Reflect Sprite"
+    />
   )
 }
