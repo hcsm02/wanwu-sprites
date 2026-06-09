@@ -13,8 +13,8 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 
-import { createRecord, listRecords, recommendActivity } from './api'
-import type { ActivityCard, ActivityContext, ActivityRecord } from './types'
+import { createRecord, getCurrentUser, listRecords, loginUser, recommendActivity, registerUser } from './api'
+import type { ActivityCard, ActivityContext, ActivityRecord, User } from './types'
 
 type Locale = 'zh' | 'en'
 type Stage = 'home' | 'activity' | 'doing' | 'reflect' | 'memory'
@@ -96,6 +96,7 @@ const sampleActivities: Record<Locale, ActivityCard> = {
 
 const PLAY_SPRITE_SRC = '/sprites/play-sprite.png'
 const REFLECT_SPRITE_SRC = '/sprites/reflect-sprite.png'
+const AUTH_TOKEN_STORAGE_KEY = 'wanwu_auth_token'
 
 const localeCopy = {
   zh: {
@@ -211,26 +212,83 @@ export default function App() {
   const [mood, setMood] = useState<MoodKey>('happy')
   const [note, setNote] = useState('')
   const [lastRecord, setLastRecord] = useState<ActivityRecord | null>(null)
+  const [user, setUser] = useState<User | null>(null)
+  const [authToken, setAuthToken] = useState('')
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('register')
+  const [username, setUsername] = useState('')
+  const [phoneNumber, setPhoneNumber] = useState('')
+  const [password, setPassword] = useState('')
+  const [nickname, setNickname] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const copy = localeCopy[locale]
   const latestRecords = useMemo(() => records.slice(0, 3), [records])
-  const activeActivity = activity ?? sampleActivities[locale]
+  const activeActivity = activity
   const activeStageIndex = stage === 'memory' ? 4 : ['home', 'activity', 'doing', 'reflect'].indexOf(stage) + 1
-  const memoryPreview = lastRecord?.ai_memory || copy.fallbackMemory(activeActivity.title, note || activeActivity.record_prompt)
+  const memoryPreview = lastRecord?.ai_memory || (activeActivity ? copy.fallbackMemory(activeActivity.title, note || activeActivity.record_prompt) : '')
 
   useEffect(() => {
-    refreshRecords()
+    void bootstrapSession()
   }, [])
 
-  async function refreshRecords() {
+  async function bootstrapSession() {
+    const savedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
+    if (!savedToken) return
+
     try {
-      const result = await listRecords()
+      const currentUser = await getCurrentUser(savedToken)
+      setUser(currentUser)
+      setAuthToken(savedToken)
+      await refreshRecords(savedToken)
+    } catch {
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    }
+  }
+
+  async function refreshRecords(token: string) {
+    try {
+      const result = await listRecords(token)
       setRecords(result)
     } catch {
       // Ignore history fetch failures in the visual demo.
     }
+  }
+
+  function completeAuth(nextUser: User, token: string) {
+    setUser(nextUser)
+    setAuthToken(token)
+    setUsername('')
+    setPhoneNumber('')
+    setPassword('')
+    setNickname('')
+    setError('')
+    window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token)
+  }
+
+  async function submitAuth() {
+    setLoading(true)
+    setError('')
+    try {
+      const response =
+        authMode === 'register'
+          ? await registerUser(username, phoneNumber, password, nickname || undefined)
+          : await loginUser(phoneNumber, password)
+      completeAuth(response.user, response.token)
+      await refreshRecords(response.token)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '登录或注册失败。')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function logout() {
+    setUser(null)
+    setAuthToken('')
+    setRecords([])
+    setLastRecord(null)
+    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
   }
 
   function buildApiContext(currentContext: UiContext, currentLocale: Locale): ActivityContext {
@@ -263,6 +321,10 @@ export default function App() {
 
   async function saveReflection() {
     if (!activity) return
+    if (!user || !authToken) {
+      setError(copy.saveError)
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -270,11 +332,11 @@ export default function App() {
         activity,
         mood: moodLabels[locale][mood],
         one_line_note: note || activity.record_prompt,
-      })
+      }, authToken)
       setLastRecord(record)
       setStage('memory')
       setNote('')
-      await refreshRecords()
+      await refreshRecords(authToken)
     } catch (err) {
       setError(err instanceof Error ? err.message : copy.saveError)
     } finally {
@@ -283,6 +345,7 @@ export default function App() {
   }
 
   function fillPrompt() {
+    if (!activeActivity) return
     setStage('reflect')
     setNote(activeActivity.record_prompt)
   }
@@ -329,6 +392,68 @@ export default function App() {
 
       <section className="poster-board">
         <aside className="sprite-rail">
+          <div className="rail-card auth-card">
+            <div className="rail-card-head">
+              <h2>{user ? '当前账号' : authMode === 'register' ? '注册账号' : '登录账号'}</h2>
+            </div>
+            {user ? (
+              <div className="account-summary">
+                <strong>{user.nickname}</strong>
+                <p>{user.phone_number || user.username || '已登录'}</p>
+                <button className="ghost-button auth-action" onClick={logout}>
+                  退出登录
+                </button>
+              </div>
+            ) : (
+              <div className="auth-form">
+                <div className="auth-toggle">
+                  <button className={authMode === 'register' ? 'active' : ''} onClick={() => setAuthMode('register')}>
+                    注册
+                  </button>
+                  <button className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>
+                    登录
+                  </button>
+                </div>
+                {authMode === 'register' && (
+                  <input
+                    className="auth-input"
+                    value={nickname}
+                    placeholder="家庭昵称（选填）"
+                    onChange={(event) => setNickname(event.target.value)}
+                  />
+                )}
+                {authMode === 'register' && (
+                  <input
+                    className="auth-input"
+                    value={username}
+                    placeholder="用户名（必填，可重复）"
+                    onChange={(event) => setUsername(event.target.value)}
+                  />
+                )}
+                <input
+                  className="auth-input"
+                  value={phoneNumber}
+                  placeholder="手机号（必填，唯一）"
+                  onChange={(event) => setPhoneNumber(event.target.value)}
+                />
+                <input
+                  className="auth-input"
+                  type="password"
+                  value={password}
+                  placeholder="密码（必填）"
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+                <button
+                  className="cta-button auth-submit"
+                  onClick={submitAuth}
+                  disabled={loading || !phoneNumber || !password || (authMode === 'register' && !username)}
+                >
+                  {authMode === 'register' ? '立即注册' : '立即登录'}
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="rail-card">
             <h2>{copy.meetSprites}</h2>
             <div className="rail-divider">★</div>
@@ -393,7 +518,7 @@ export default function App() {
                   : activeStageIndex === 2
                     ? copy.playSprite
                     : activeStageIndex === 3
-                      ? activeActivity.title
+                      ? activeActivity?.title || copy.playSprite
                       : copy.reflectSprite
               }
               tone={activeStageIndex === 4 ? 'cool' : 'warm'}
@@ -410,7 +535,7 @@ export default function App() {
                 />
               )}
 
-              {activeStageIndex === 2 && (
+              {activeStageIndex === 2 && activeActivity && (
                 <ActivityPhone
                   locale={locale}
                   bubble={copy.playBubble}
@@ -421,11 +546,11 @@ export default function App() {
                   loading={loading}
                   onSwap={() => drawCard()}
                   onStart={() => setStage('doing')}
-                  ready={activity !== null}
+                  ready={activeActivity !== null}
                 />
               )}
 
-              {activeStageIndex === 3 && (
+              {activeStageIndex === 3 && activeActivity && (
                 <DoingPhone
                   niceJob={copy.niceJob}
                   youDidIt={copy.youDidIt}
@@ -436,7 +561,7 @@ export default function App() {
                 />
               )}
 
-              {activeStageIndex === 4 && (
+              {activeStageIndex === 4 && activeActivity && (
                 <ReflectPhone
                   locale={locale}
                   bubble={copy.reflectBubble}
@@ -474,21 +599,21 @@ export default function App() {
               label={copy.panelActivity}
               caption={copy.panelActivityCaption}
               active={activeStageIndex === 2}
-              onClick={() => setStage('activity')}
+              onClick={() => activeActivity && setStage('activity')}
             />
             <StagePreview
               number={3}
               label={copy.panelDoing}
               caption={copy.panelDoingCaption}
               active={activeStageIndex === 3}
-              onClick={() => setStage('doing')}
+              onClick={() => activeActivity && setStage('doing')}
             />
             <StagePreview
               number={4}
               label={copy.panelReflect}
               caption={copy.panelReflectCaption}
               active={activeStageIndex === 4}
-              onClick={() => setStage(stage === 'memory' ? 'memory' : 'reflect')}
+              onClick={() => activeActivity && setStage(stage === 'memory' ? 'memory' : 'reflect')}
             />
           </aside>
         </div>

@@ -96,7 +96,11 @@ http://localhost:5173
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/health` | 健康检查 |
+| POST | `/api/auth/register` | 用用户名、手机号、密码注册账号并返回登录态 |
+| POST | `/api/auth/login` | 用手机号、密码登录已有账号并返回登录态 |
+| GET | `/api/auth/me` | 获取当前登录用户 |
+| GET | `/health` | 健康检查，返回数据库实际落点、用户数与 LLM 配置状态 |
+| GET | `/health?check_ai=true` | 在健康检查基础上额外执行一次 LLM 轻量连通性测试 |
 | POST | `/api/activity/recommend` | 推荐活动卡 |
 | POST | `/api/records` | 保存记录并生成记忆 |
-| GET | `/api/records` | 获取历史记录 |
+| GET | `/api/records` | 获取当前登录用户的历史记录 |

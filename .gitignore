@@ -16,6 +16,8 @@ frontend/.vite/
 # Data
 data/*.db
 data/*.sqlite
+data/**/*.db
+data/**/*.sqlite
 backend/*.db
 
 # OS / Editor

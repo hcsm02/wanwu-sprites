@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 from typing import Any
 
 from dotenv import load_dotenv
@@ -11,36 +10,6 @@ from openai import OpenAI
 from .schemas import ActivityCard, ActivityContext
 
 load_dotenv()
-
-FALLBACK_ACTIVITIES: list[ActivityCard] = [
-    ActivityCard(
-        title="影子模仿",
-        tags=["5分钟", "家里", "不用材料"],
-        intro="用手做影子，让孩子模仿，再交换角色。",
-        steps=["找一面有光的墙", "你先做一个简单影子", "换孩子来做，你来模仿"],
-        question="哪个影子最好笑？",
-        record_prompt="孩子今天最有趣的反应是什么？",
-        sprite_tip="玩精灵建议：只做3轮就够，不用追求完美。",
-    ),
-    ActivityCard(
-        title="颜色寻宝",
-        tags=["10分钟", "家里", "不用材料"],
-        intro="一起找出3种颜色的物品，说说最喜欢哪一个。",
-        steps=["选一个颜色", "一起找3个同色物品", "让孩子选最喜欢的一个"],
-        question="这个颜色让你想到什么？",
-        record_prompt="孩子今天喜欢了什么颜色？为什么？",
-        sprite_tip="玩精灵建议：少找几个，保持轻松。",
-    ),
-    ActivityCard(
-        title="一分钟夸夸",
-        tags=["3分钟", "睡前", "不用材料"],
-        intro="你和孩子轮流说一句今天想夸对方的话。",
-        steps=["你先夸孩子一句", "孩子也夸你一句", "互相说谢谢"],
-        question="今天你最想感谢谁？",
-        record_prompt="孩子今天说了哪句话让你想记住？",
-        sprite_tip="玩精灵建议：说得简单真实，比说得漂亮更重要。",
-    ),
-]
 
 
 def _get_ai_settings() -> tuple[str, str, str]:
@@ -55,11 +24,45 @@ def _get_client() -> OpenAI | None:
     api_key, _, base_url = _get_ai_settings()
     if not api_key:
         return None
-
     if base_url:
         return OpenAI(api_key=api_key, base_url=base_url)
-
     return OpenAI(api_key=api_key)
+
+
+def get_ai_status(check_connection: bool = False) -> dict[str, Any]:
+    api_key, model, base_url = _get_ai_settings()
+    status: dict[str, Any] = {
+        "configured": bool(api_key and model),
+        "has_api_key": bool(api_key),
+        "model": model or None,
+        "base_url": base_url or None,
+        "using_fallback": not bool(api_key and model),
+        "connection_ok": None,
+        "connection_error": None,
+    }
+
+    if not check_connection:
+        return status
+
+    client = _get_client()
+    if client is None or not model:
+        status["connection_ok"] = False
+        status["connection_error"] = "LLM is not fully configured."
+        return status
+
+    try:
+        client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "ping"}],
+            temperature=0,
+            max_tokens=1,
+        )
+        status["connection_ok"] = True
+    except Exception as exc:
+        status["connection_ok"] = False
+        status["connection_error"] = str(exc)
+
+    return status
 
 
 def _safe_json_loads(text: str) -> dict[str, Any] | None:
@@ -73,14 +76,28 @@ def _safe_json_loads(text: str) -> dict[str, Any] | None:
         return None
 
 
-def recommend_activity(context: ActivityContext) -> ActivityCard:
+def recommend_activity_with_debug(context: ActivityContext) -> tuple[ActivityCard, dict[str, Any]]:
     client = _get_client()
-    api_key, model, _ = _get_ai_settings()
+    api_key, model, base_url = _get_ai_settings()
+    debug: dict[str, Any] = {
+        "feature": "recommend_activity",
+        "llm_configured": bool(client is not None and api_key and model),
+        "model": model or None,
+        "base_url": base_url or None,
+        "used_fallback": False,
+        "fallback_reason": None,
+        "raw_content": None,
+        "error": None,
+    }
+
     if client is None or not api_key or not model:
-        return random.choice(FALLBACK_ACTIVITIES)
+        debug["used_fallback"] = True
+        debug["fallback_reason"] = "missing_api_key_or_model"
+        raise RuntimeError("LLM 未配置，推荐功能不可用。")
 
     prompt = f"""
-你是一个亲子微活动推荐助手，产品角色叫“玩悟精灵”。请根据当前场景生成 1 个低门槛亲子活动。
+你是“玩悟精灵”的亲子活动推荐助手。请根据当前场景只生成 1 个低门槛亲子活动。
+
 当前场景：
 - 时间：{context.duration}
 - 地点：{context.location}
@@ -89,23 +106,25 @@ def recommend_activity(context: ActivityContext) -> ActivityCard:
 - 孩子年龄：{context.child_age or "未知"}
 
 要求：
-- 活动必须马上能做。
-- 不要像课程教案。
-- 步骤最多 3 步。
-- 总时长尽量 5-15 分钟。
-- 材料越少越好。
-- 给出 1 个亲子提问。
-- 给出 1 个记录提示。
-- 语言简洁、温和、适合手机端。
-只输出 JSON，不要输出 Markdown：
+- 活动必须马上能做
+- 不要写成课程教案
+- 步骤最多 3 步
+- 总时长控制在 5 到 15 分钟
+- 材料越少越好
+- 给出 1 个亲子提问
+- 给出 1 个记录提示
+- 语言简洁、温和、适合手机阅读
+- 只输出 JSON，不要输出 Markdown
+
+JSON 结构：
 {{
-  "title": "活动名",
+  "title": "活动标题",
   "tags": ["5分钟", "家里", "不用材料"],
   "intro": "一句话说明怎么玩",
   "steps": ["步骤1", "步骤2", "步骤3"],
   "question": "一个亲子提问",
   "record_prompt": "一个记录提示",
-  "sprite_tip": "玩悟精灵的一句话提醒"
+  "sprite_tip": "玩悟精灵的一句提醒"
 }}
 """
 
@@ -113,44 +132,65 @@ def recommend_activity(context: ActivityContext) -> ActivityCard:
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "你只输出严格 JSON。"},
+                {"role": "system", "content": "你只能输出严格 JSON。"},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.8,
         )
         content = response.choices[0].message.content or ""
+        debug["raw_content"] = content
         data = _safe_json_loads(content)
         if data is None:
-            return random.choice(FALLBACK_ACTIVITIES)
-        return ActivityCard(**data)
-    except Exception:
-        return random.choice(FALLBACK_ACTIVITIES)
+            debug["used_fallback"] = True
+            debug["fallback_reason"] = "invalid_json_from_llm"
+            raise RuntimeError("LLM 返回的推荐结果不是合法 JSON。")
+        return ActivityCard(**data), debug
+    except Exception as exc:
+        debug["used_fallback"] = True
+        if debug["fallback_reason"] is None:
+            debug["fallback_reason"] = "llm_request_failed"
+        debug["error"] = str(exc)
+        raise RuntimeError(str(exc))
 
 
-def create_memory(activity_title: str, mood: str, one_line_note: str) -> str:
-    clean_note = one_line_note.strip()
-    if not clean_note:
-        clean_note = "我们完成了这个小活动。"
+def recommend_activity(context: ActivityContext) -> ActivityCard:
+    card, _ = recommend_activity_with_debug(context)
+    return card
 
+
+def create_memory_with_debug(activity_title: str, mood: str, one_line_note: str) -> tuple[str, dict[str, Any]]:
+    clean_note = one_line_note.strip() or "我们完成了这个小活动。"
     client = _get_client()
-    api_key, model, _ = _get_ai_settings()
+    api_key, model, base_url = _get_ai_settings()
+    debug: dict[str, Any] = {
+        "feature": "create_memory",
+        "llm_configured": bool(client is not None and api_key and model),
+        "model": model or None,
+        "base_url": base_url or None,
+        "used_fallback": False,
+        "fallback_reason": None,
+        "raw_content": None,
+        "error": None,
+        "normalized_note": clean_note,
+    }
+
     if client is None or not api_key or not model:
-        return (
-            f"今天我们一起完成了《{activity_title}》。孩子的状态是“{mood}”。"
-            f"{clean_note} 这是一个简单但值得保存的亲子时刻。"
-        )
+        debug["used_fallback"] = True
+        debug["fallback_reason"] = "missing_api_key_or_model"
+        return f"今天我们一起完成了《{activity_title}》。当时的感受是“{mood}”。{clean_note}", debug
 
     prompt = f"""
-你是“悟精灵”，负责把家长的一句话记录整理成简短、真实、温和的亲子记忆。
+你是“玩悟精灵”，负责把家长的一句话记录整理成简短、真实、温和的亲子记忆。
+
 活动：{activity_title}
-孩子/家长感受：{mood}
-家长的一句话记录：{clean_note}
+感受：{mood}
+家长记录：{clean_note}
 
 要求：
-- 100-180 字。
-- 不夸张，不编造具体事实。
-- 重点保留真实感受、互动瞬间和可回看的记忆感。
-- 不要写成教育评价报告。
+- 100 到 180 字
+- 不夸张，不编造具体事实
+- 保留真实感受、互动瞬间和可回看的记忆感
+- 不要写成教育评估报告
 """
 
     try:
@@ -162,9 +202,16 @@ def create_memory(activity_title: str, mood: str, one_line_note: str) -> str:
             ],
             temperature=0.6,
         )
-        return (response.choices[0].message.content or "").strip()
-    except Exception:
-        return (
-            f"今天我们一起完成了《{activity_title}》。孩子的状态是“{mood}”。"
-            f"{clean_note} 这是一个简单但值得保存的亲子时刻。"
-        )
+        content = (response.choices[0].message.content or "").strip()
+        debug["raw_content"] = content
+        return content, debug
+    except Exception as exc:
+        debug["used_fallback"] = True
+        debug["fallback_reason"] = "llm_request_failed"
+        debug["error"] = str(exc)
+        return f"今天我们一起完成了《{activity_title}》。当时的感受是“{mood}”。{clean_note}", debug
+
+
+def create_memory(activity_title: str, mood: str, one_line_note: str) -> str:
+    memory, _ = create_memory_with_debug(activity_title, mood, one_line_note)
+    return memory

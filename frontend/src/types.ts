@@ -22,8 +22,22 @@ export type CreateRecordRequest = {
   one_line_note: string
 }
 
+export type User = {
+  id: number
+  nickname: string
+  username?: string | null
+  phone_number?: string | null
+  created_at: string
+}
+
+export type AuthResponse = {
+  token: string
+  user: User
+}
+
 export type ActivityRecord = {
   id: number
+  user_id?: number | null
   activity_title: string
   activity_tags: string[]
   activity_steps: string[]

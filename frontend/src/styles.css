@@ -279,6 +279,69 @@ button:disabled {
   gap: 10px;
 }
 
+.auth-card {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-form,
+.account-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.auth-toggle button {
+  min-height: 40px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(96, 116, 177, 0.12);
+  color: #5a6692;
+  font-weight: 800;
+}
+
+.auth-toggle button.active {
+  background: #fff1dd;
+  color: #d86d17;
+  border-color: rgba(255, 171, 72, 0.28);
+}
+
+.auth-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(104, 125, 209, 0.15);
+  background: #fbfcff;
+  color: #34436f;
+  outline: none;
+}
+
+.auth-input:focus {
+  border-color: rgba(93, 118, 226, 0.4);
+  box-shadow: 0 0 0 4px rgba(93, 118, 226, 0.08);
+}
+
+.auth-submit,
+.auth-action {
+  width: 100%;
+}
+
+.account-summary strong {
+  color: #304170;
+  font-size: 18px;
+}
+
+.account-summary p {
+  margin: 0;
+  color: var(--muted);
+}
+
 .memory-stack-item {
   padding: 12px 13px;
   border-radius: 20px;

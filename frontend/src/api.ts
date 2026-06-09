@@ -1,11 +1,12 @@
-import type { ActivityCard, ActivityContext, ActivityRecord, CreateRecordRequest } from './types'
+import type { ActivityCard, ActivityContext, ActivityRecord, AuthResponse, CreateRecordRequest, User } from './types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, token?: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options?.headers || {}),
     },
     ...options,
@@ -26,13 +27,39 @@ export function recommendActivity(context: ActivityContext): Promise<ActivityCar
   })
 }
 
-export function createRecord(payload: CreateRecordRequest): Promise<ActivityRecord> {
-  return request<ActivityRecord>('/api/records', {
+export function registerUser(username: string, phoneNumber: string, password: string, nickname?: string): Promise<AuthResponse> {
+  return request<AuthResponse>('/api/auth/register', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      nickname,
+      phone_number: phoneNumber,
+      username,
+      password,
+    }),
   })
 }
 
-export function listRecords(): Promise<ActivityRecord[]> {
-  return request<ActivityRecord[]>('/api/records')
+export function loginUser(phoneNumber: string, password: string): Promise<AuthResponse> {
+  return request<AuthResponse>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      phone_number: phoneNumber,
+      password,
+    }),
+  })
+}
+
+export function getCurrentUser(token: string): Promise<User> {
+  return request<User>('/api/auth/me', undefined, token)
+}
+
+export function createRecord(payload: CreateRecordRequest, token: string): Promise<ActivityRecord> {
+  return request<ActivityRecord>('/api/records', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, token)
+}
+
+export function listRecords(token: string): Promise<ActivityRecord[]> {
+  return request<ActivityRecord[]>('/api/records', undefined, token)
 }

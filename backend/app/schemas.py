@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -16,12 +16,45 @@ class ActivityContext(BaseModel):
 
 class ActivityCard(BaseModel):
     title: str
-    tags: List[str]
+    tags: list[str]
     intro: str
-    steps: List[str]
+    steps: list[str]
     question: str
     record_prompt: str
     sprite_tip: str
+
+
+class EnsureUserRequest(BaseModel):
+    browser_id: str = Field(min_length=8, max_length=120)
+    nickname: Optional[str] = Field(default=None, max_length=80)
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=40)
+    phone_number: str = Field(min_length=6, max_length=20)
+    password: str = Field(min_length=6, max_length=120)
+    nickname: Optional[str] = Field(default=None, max_length=80)
+
+
+class LoginRequest(BaseModel):
+    phone_number: str = Field(min_length=6, max_length=20)
+    password: str = Field(min_length=6, max_length=120)
+
+
+class UserOut(BaseModel):
+    id: int
+    nickname: str
+    username: Optional[str] = None
+    phone_number: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserOut
 
 
 class CreateRecordRequest(BaseModel):
@@ -32,9 +65,10 @@ class CreateRecordRequest(BaseModel):
 
 class ActivityRecordOut(BaseModel):
     id: int
+    user_id: Optional[int] = None
     activity_title: str
-    activity_tags: List[str]
-    activity_steps: List[str]
+    activity_tags: list[str]
+    activity_steps: list[str]
     activity_question: str
     record_prompt: str
     mood: str
